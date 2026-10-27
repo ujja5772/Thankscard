@@ -251,8 +251,8 @@ function qrSVG(text, px){
 }
 
 /* ===== 설정 ===== */
-const SUPABASE_URL = 'https://kpjbzvcvbhuakevhyruz.supabase.co';          // 예: https://xxxx.supabase.co
-const SUPABASE_KEY = 'sb_publishable_Q7JPoZ0VkRx4-2t1pj8Hpg_ibbRnrpM';          // anon(public) key
+const SUPABASE_URL = '';          // 예: https://xxxx.supabase.co
+const SUPABASE_KEY = '';          // anon(public) key
 /* 교사·관리자 비밀번호는 Supabase(setup.sql)에서 정해요. 아래 줄은 키를 비워 둔 연습(DEMO) 모드에서만 쓰여요 */
 const DEMO_TEACHER = '0000', DEMO_ADMIN = '9999';
 const REC_MAX_SEC = 60;           // 녹음 최대 시간
@@ -839,12 +839,12 @@ async function openMapCard(id){
   $('#mHear').onclick=()=>speak(sentences(c).join(' '),0.9);
   if($('#mDel')) $('#mDel').onclick=async()=>{
     if(!confirm('이 편지를 지도에서 지울까요? (되돌릴 수 없어요)')) return;
-    try{ await api.adminDel(id); toast('지웠어요.'); }catch(e){ toast('지우지 못했어요.'); }
+    try{ await api.adminDel(id); toast('지웠어요.'); }catch(e){ const m=String(e.message||e); toast('지우지 못했어요. (원인: '+(m.includes('ty_delete_room')?'setup.sql을 다시 실행해야 해요':m.includes('forbidden')?'나갔다가 다시 로그인해 주세요':m.slice(0,60))+')'); }
     closeModal(); loadMap();
   };
 }
 function viewMap(){
-  $('#app').innerHTML=`<div class="mapview"><div class="maphead"><h2>감사 편지 지도</h2><span class="small">3·1운동 때는 하나의 나라였어요 · 카드가 한 장씩 한반도를 채워요</span><span style="flex:1"></span><button class="btn ghost" id="mapAdm" style="padding:6px 16px;font-size:15px">${S.adminPin?'🔑 삭제 모드 켜짐 (끄기)':'🔑 관리자'}</button> <button class="btn ghost" id="mapBack" style="padding:6px 16px;font-size:15px">← 돌아가기</button></div><div class="mapbody" id="mapBody"><div class="empty">불러오는 중…</div></div></div>`;
+  $('#app').innerHTML=`<div class="mapview"><div class="maphead"><h2>감사 편지 지도</h2><span class="small">카드가 한 장씩 한반도를 채워요</span><span style="flex:1"></span><button class="btn ghost" id="mapAdm" style="padding:6px 16px;font-size:15px">${S.adminPin?'🔑 삭제 모드 켜짐 (끄기)':'🔑 관리자'}</button> <button class="btn ghost" id="mapBack" style="padding:6px 16px;font-size:15px">← 돌아가기</button></div><div class="mapbody" id="mapBody"><div class="empty">불러오는 중…</div></div></div>`;
   $('#mapAdm').onclick=async()=>{
     if(S.adminPin){ S.adminPin=null; viewMap(); return; }
     const pin=prompt('관리자 비밀번호'); if(!pin) return;
