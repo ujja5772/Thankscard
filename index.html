@@ -194,14 +194,14 @@ footer{flex:none;padding:2px 0 4px;font-size:11px}
 
 <script>
 /* ===== 설정 ===== */
-const SUPABASE_URL = 'https://kpjbzvcvbhuakevhyruz.supabase.co/rest/v1/';          // 예: https://xxxx.supabase.co
-const SUPABASE_KEY = 'sb_publishable_Q7JPoZ0VkRx4-2t1pj8Hpg_ibbRnrpM';          // anon(public) key
+const SUPABASE_URL = '';          // 예: https://xxxx.supabase.co
+const SUPABASE_KEY = '';          // anon(public) key
 const TEACHER_PIN  = '0000';      // 교사 비밀번호 (꼭 바꾸세요)
 const REC_MAX_SEC = 40;           // 녹음 최대 시간
 
 /* ===== 데이터 계층 ===== */
 const REMOTE = !!(SUPABASE_URL && SUPABASE_KEY);
-const H = REMOTE ? {apikey:SUPABASE_KEY, Authorization:'Bearer '+SUPABASE_KEY, 'Content-Type':'application/json'} : {};
+const H = REMOTE ? Object.assign({apikey:SUPABASE_KEY, 'Content-Type':'application/json'}, SUPABASE_KEY.startsWith('eyJ')?{Authorization:'Bearer '+SUPABASE_KEY}:{}) : {};
 async function rest(path, opt={}){
   const r = await fetch(SUPABASE_URL+'/rest/v1/'+path, {...opt, headers:{...H, ...(opt.headers||{})}});
   if(!r.ok) throw new Error(await r.text());
@@ -533,7 +533,7 @@ function viewRec(){
       }
       { await refresh(); const me2=S.cards.find(c=>c.num===S.num); if(me2) await api.patchCard(me2.id,{audio_public:!!S.draft.audio_public}); }
       await refresh(); S.screen='wall'; render(); toast('카드를 올렸어요!');
-    }catch(e){ console.error(e); $('#rWarn').textContent='올리지 못했어요. 다시 눌러 보세요.'; $('#post').disabled=false; }
+    }catch(e){ console.error(e); $('#rWarn').innerHTML='올리지 못했어요. 다시 눌러 보세요.<br><span class="small">(원인 : '+esc(String(e.message||e).slice(0,160))+')</span>'; $('#post').disabled=false; }
   };
 }
 
