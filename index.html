@@ -176,6 +176,7 @@ footer{flex:none;padding:2px 0 4px;font-size:11px}
 .mapside .big{font-size:clamp(40px,10vh,76px);font-weight:700;line-height:1;color:#233A52;font-family:Georgia,serif}
 .mapside .bar{height:12px;background:#E5DEC8;border-radius:8px;overflow:hidden}.mapside .bar i{display:block;height:100%;background:#A9741E}
 .mapside .leg{font-size:14px;color:#5B6B7B}
+
 @keyframes pl{0%,100%{opacity:1}50%{opacity:.35}} .pulse{animation:pl 1.6s infinite}
 .dgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px}.dcard{background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px 16px}.dash{max-width:1000px;margin:0 auto;padding:6px 20px}
 .tin{height:46px;font-size:17px;padding:8px 14px;box-sizing:border-box;border:1px solid var(--line);border-radius:10px;background:#fff}
@@ -189,6 +190,7 @@ footer{flex:none;padding:2px 0 4px;font-size:11px}
   <div class="headline">푸른눈의 독립운동가들에게 고마운 마음을 전해요.</div>
   <div class="who" id="who"></div>
   <button id="teacherBtn">교사</button>
+  <button id="adminBtn">관리자</button>
   <button id="outBtn" style="display:none">나가기</button>
 </div>
 <main id="app"></main>
@@ -249,11 +251,11 @@ function qrSVG(text, px){
 }
 
 /* ===== 설정 ===== */
-const SUPABASE_URL = 'https://kpjbzvcvbhuakevhyruz.supabase.co';          // 예: https://xxxx.supabase.co
-const SUPABASE_KEY = 'sb_publishable_Q7JPoZ0VkRx4-2t1pj8Hpg_ibbRnrpM';          // anon(public) key
+const SUPABASE_URL = '';          // 예: https://xxxx.supabase.co
+const SUPABASE_KEY = '';          // anon(public) key
 /* 교사·관리자 비밀번호는 Supabase(setup.sql)에서 정해요. 아래 줄은 키를 비워 둔 연습(DEMO) 모드에서만 쓰여요 */
 const DEMO_TEACHER = '0000', DEMO_ADMIN = '9999';
-const REC_MAX_SEC = 40;           // 녹음 최대 시간
+const REC_MAX_SEC = 60;           // 녹음 최대 시간
 
 /* ===== 데이터 계층 ===== */
 const BASE_URL = SUPABASE_URL.trim().replace(/\/rest\/v1\/?$/,'').replace(/\/+$/,'');
@@ -898,6 +900,26 @@ function teacherModal(){
   $('#tPw').addEventListener('keydown',e=>{ if(e.key==='Enter') $('#tGo').click(); });
 }
 $('#teacherBtn').onclick=teacherModal;
+function adminModal(){
+  $('#modalRoot').innerHTML=`<div class="mask" id="mask"><div class="modal" style="max-width:420px">
+    <h3>🔑 관리자 로그인</h3>
+    <label class="small">관리자 비밀번호</label><input class="tin" id="aPw" type="password" style="width:100%;margin-bottom:8px">
+    <div class="warn" id="aWarn"></div>
+    <div style="display:flex;gap:8px;align-items:center;margin-top:10px"><span style="flex:1"></span><button class="btn ghost" id="aCancel" style="padding:6px 18px">닫기</button><button class="btn" id="aGo" style="padding:6px 22px">로그인</button></div></div></div>`;
+  const warn=t=>{ $('#aWarn').textContent=t; };
+  $('#aCancel').onclick=()=>{ $('#modalRoot').innerHTML=''; };
+  $('#aGo').onclick=async()=>{
+    const pw=$('#aPw').value; if(!pw){ warn('비밀번호를 써 주세요.'); return; }
+    $('#aGo').disabled=true; let ses=null;
+    try{ ses=await api.sessionLogin('',pw); }catch(e){ warn('연결이 안 돼요. 키와 주소를 확인해 주세요.'); $('#aGo').disabled=false; return; }
+    if(!ses||ses.error||ses.role!=='admin'){ warn('관리자 비밀번호가 달라요.'); $('#aGo').disabled=false; return; }
+    S.pin=ses.token; S.tid=ses.tid; S.adminPin=ses.token; S.teacher=true; S.code=''; S.num=0;
+    $('#modalRoot').innerHTML=''; S.screen='dash'; render();
+  };
+  $('#aPw').addEventListener('keydown',e=>{ if(e.key==='Enter') $('#aGo').click(); });
+  setTimeout(()=>$('#aPw')&&$('#aPw').focus(),50);
+}
+$('#adminBtn').onclick=adminModal;
 
 const stuLink=code=>location.origin+location.pathname+'?code='+encodeURIComponent(code);
 function showQR(code){
