@@ -177,6 +177,7 @@ footer{flex:none;padding:2px 0 4px;font-size:11px}
 .mapside .bar{height:12px;background:#E5DEC8;border-radius:8px;overflow:hidden}.mapside .bar i{display:block;height:100%;background:#A9741E}
 .mapside .leg{font-size:14px;color:#5B6B7B}
 @keyframes pl{0%,100%{opacity:1}50%{opacity:.35}} .pulse{animation:pl 1.6s infinite}
+.dgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px}.dcard{background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px 16px}.dash{max-width:1000px;margin:0 auto;padding:6px 20px}
 </style>
 </head>
 <body>
@@ -193,20 +194,77 @@ footer{flex:none;padding:2px 0 4px;font-size:11px}
 <div id="modalRoot"></div>
 
 <script>
+/* ===== QR 코드 (외부 라이브러리 없이) ===== */
+/* 아주 작은 QR 코드 생성기 (바이트 모드, 오류정정 M, 버전 1~10). 외부 라이브러리 없이 동작해요 */
+function makeQR(text){
+  const data=Array.from(new TextEncoder().encode(text));
+  const ECC=[0,10,16,26,18,24,16,18,22,22,26], BLK=[0,1,1,1,2,2,4,4,4,5,5];
+  const raw=v=>{ let r=(16*v+128)*v+64; if(v>=2){ const a=Math.floor(v/7)+2; r-=(25*a-10)*a-55; if(v>=7) r-=36; } return Math.floor(r/8); };
+  let ver=1; for(;ver<=10;ver++){ const cap=raw(ver)-ECC[ver]*BLK[ver]; if(data.length+(ver<10?2:3)<=cap) break; }
+  if(ver>10) throw new Error('too long');
+  const cap=raw(ver)-ECC[ver]*BLK[ver], size=ver*4+17;
+  const bits=[]; const put=(v,n)=>{ for(let i=n-1;i>=0;i--) bits.push((v>>>i)&1); };
+  put(4,4); put(data.length, ver<10?8:16); data.forEach(b=>put(b,8));
+  put(0,Math.min(4,cap*8-bits.length)); while(bits.length%8) bits.push(0);
+  const cw=[]; for(let i=0;i<bits.length;i+=8) cw.push(parseInt(bits.slice(i,i+8).join(''),2));
+  for(let p=0xEC;cw.length<cap;p^=0xEC^0x11) cw.push(p);
+  const mul=(x,y)=>{ let z=0; for(let i=7;i>=0;i--){ z=(z<<1)^((z>>>7)*0x11D); z^=((y>>>i)&1)*x; } return z&255; };
+  const d=ECC[ver]; let div=new Array(d).fill(0); div[d-1]=1; let root=1;
+  for(let i=0;i<d;i++){ for(let j=0;j<d;j++){ div[j]=mul(div[j],root); if(j+1<d) div[j]^=div[j+1]; } root=mul(root,2); }
+  const rem=bl=>{ const r=new Array(d).fill(0); bl.forEach(b=>{ const f=b^r.shift(); r.push(0); div.forEach((c,i)=>{ r[i]^=mul(c,f); }); }); return r; };
+  const nb=BLK[ver], rc=raw(ver), ns=nb-rc%nb, sl=Math.floor(rc/nb), blocks=[]; let k=0;
+  for(let i=0;i<nb;i++){ const dl=sl-d+(i<ns?0:1); const dat=cw.slice(k,k+dl); k+=dl; const e=rem(dat); if(i<ns) dat.push(0); blocks.push(dat.concat(e)); }
+  const out=[]; for(let i=0;i<blocks[0].length;i++) blocks.forEach((b,j)=>{ if(i!==sl-d||j>=ns) out.push(b[i]); });
+  const M=Array.from({length:size},()=>new Array(size).fill(0)), F=Array.from({length:size},()=>new Array(size).fill(false));
+  const set=(x,y,v)=>{ M[y][x]=v?1:0; F[y][x]=true; };
+  for(let i=0;i<size;i++){ set(6,i,i%2===0); set(i,6,i%2===0); }
+  const finder=(cx,cy)=>{ for(let dy=-4;dy<=4;dy++) for(let dx=-4;dx<=4;dx++){ const x=cx+dx,y=cy+dy; if(x<0||y<0||x>=size||y>=size) continue; const dist=Math.max(Math.abs(dx),Math.abs(dy)); set(x,y,dist!==2&&dist!==4); } };
+  finder(3,3); finder(size-4,3); finder(3,size-4);
+  if(ver>1){ const na=Math.floor(ver/7)+2, step=Math.ceil((ver*4+4)/(na*2-2))*2; const pos=[6]; for(let p=size-7;pos.length<na;p-=step) pos.splice(1,0,p);
+    pos.forEach((cx,i)=>pos.forEach((cy,j)=>{ if((i===0&&j===0)||(i===0&&j===na-1)||(i===na-1&&j===0)) return; for(let dy=-2;dy<=2;dy++) for(let dx=-2;dx<=2;dx++) set(cx+dx,cy+dy,Math.max(Math.abs(dx),Math.abs(dy))!==1); })); }
+  const fmt=m=>{ const dd=(0<<3)|m; let r=dd; for(let i=0;i<10;i++) r=(r<<1)^((r>>>9)*0x537); const b=((dd<<10)|r)^0x5412; const g=i=>((b>>>i)&1)!==0;
+    for(let i=0;i<=5;i++) set(8,i,g(i)); set(8,7,g(6)); set(8,8,g(7)); set(7,8,g(8)); for(let i=9;i<15;i++) set(14-i,8,g(i));
+    for(let i=0;i<8;i++) set(size-1-i,8,g(i)); for(let i=8;i<15;i++) set(8,size-15+i,g(i)); set(8,size-8,true); };
+  fmt(0);
+  if(ver>=7){ let r=ver; for(let i=0;i<12;i++) r=(r<<1)^((r>>>11)*0x1F25); const b=(ver<<12)|r; for(let i=0;i<18;i++){ const v=((b>>>i)&1)!==0, a=size-11+i%3, c=Math.floor(i/3); set(a,c,v); set(c,a,v); } }
+  let bi=0; for(let right=size-1;right>=1;right-=2){ if(right===6) right=5; for(let vert=0;vert<size;vert++) for(let j=0;j<2;j++){ const x=right-j, up=((right+1)&2)===0, y=up?size-1-vert:vert; if(!F[y][x]&&bi<out.length*8){ M[y][x]=(out[bi>>>3]>>>(7-(bi&7)))&1; bi++; } } }
+  const MASK=[(x,y)=>(x+y)%2===0,(x,y)=>y%2===0,(x,y)=>x%3===0,(x,y)=>(x+y)%3===0,(x,y)=>(Math.floor(x/3)+Math.floor(y/2))%2===0,(x,y)=>x*y%2+x*y%3===0,(x,y)=>(x*y%2+x*y%3)%2===0,(x,y)=>((x+y)%2+x*y%3)%2===0];
+  const apply=m=>{ for(let y=0;y<size;y++) for(let x=0;x<size;x++) if(!F[y][x]&&MASK[m](x,y)) M[y][x]^=1; };
+  const penalty=()=>{ let p=0, dark=0;
+    for(let t=0;t<2;t++){ for(let a=0;a<size;a++){ let run=1; const g=i=>t?M[i][a]:M[a][i]; const line=[]; for(let i=0;i<size;i++) line.push(g(i));
+      for(let i=1;i<size;i++){ if(line[i]===line[i-1]){ run++; if(run===5) p+=3; else if(run>5) p++; } else run=1; }
+      const s=line.join(''); const re=/10111010000|00001011101/g; let m; while((m=re.exec(s))){ p+=40; re.lastIndex=m.index+1; } } }
+    for(let y=0;y<size;y++) for(let x=0;x<size;x++){ if(M[y][x]) dark++; if(x<size-1&&y<size-1&&M[y][x]===M[y][x+1]&&M[y][x]===M[y+1][x]&&M[y][x]===M[y+1][x+1]) p+=3; }
+    p+=Math.floor(Math.abs(dark*20-size*size*10)/(size*size))*10; return p; };
+  let best=0, bp=1e9; for(let m=0;m<8;m++){ apply(m); fmt(m); const pp=penalty(); if(pp<bp){ bp=pp; best=m; } apply(m); }
+  apply(best); fmt(best);
+  return {size, M};
+}
+function qrSVG(text, px){
+  const {size,M}=makeQR(text), q=4, n=size+q*2; let d='';
+  for(let y=0;y<size;y++) for(let x=0;x<size;x++) if(M[y][x]) d+=`M${x+q},${y+q}h1v1h-1z`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${n} ${n}" width="${px||240}" height="${px||240}" shape-rendering="crispEdges"><rect width="${n}" height="${n}" fill="#fff"/><path d="${d}" fill="#000"/></svg>`;
+}
+
 /* ===== 설정 ===== */
-const SUPABASE_URL = 'https://kpjbzvcvbhuakevhyruz.supabase.co';          // 예: https://xxxx.supabase.co
-const SUPABASE_KEY = 'sb_publishable_Q7JPoZ0VkRx4-2t1pj8Hpg_ibbRnrpM';          // anon(public) key
-const TEACHER_PIN  = '0000';      // 교사 비밀번호 (꼭 바꾸세요)
+const SUPABASE_URL = '';          // 예: https://xxxx.supabase.co
+const SUPABASE_KEY = '';          // anon(public) key
+/* 교사·관리자 비밀번호는 Supabase(setup.sql)에서 정해요. 아래 줄은 키를 비워 둔 연습(DEMO) 모드에서만 쓰여요 */
+const DEMO_TEACHER = '0000', DEMO_ADMIN = '9999';
 const REC_MAX_SEC = 40;           // 녹음 최대 시간
 
 /* ===== 데이터 계층 ===== */
-const REMOTE = !!(SUPABASE_URL && SUPABASE_KEY);
-const H = REMOTE ? Object.assign({apikey:SUPABASE_KEY, 'Content-Type':'application/json'}, SUPABASE_KEY.startsWith('eyJ')?{Authorization:'Bearer '+SUPABASE_KEY}:{}) : {};
+const BASE_URL = SUPABASE_URL.trim().replace(/\/rest\/v1\/?$/,'').replace(/\/+$/,'');
+const KEY = SUPABASE_KEY.trim();
+const REMOTE = !!(BASE_URL && KEY);
+const H = REMOTE ? Object.assign({apikey:KEY, 'Content-Type':'application/json'}, KEY.startsWith('eyJ')?{Authorization:'Bearer '+KEY}:{}) : {};
 async function rest(path, opt={}){
-  const r = await fetch(SUPABASE_URL+'/rest/v1/'+path, {...opt, headers:{...H, ...(opt.headers||{})}});
+  const r = await fetch(BASE_URL+'/rest/v1/'+path, {...opt, headers:{...H, ...(opt.headers||{})}});
   if(!r.ok) throw new Error(await r.text());
   const t = await r.text(); return t? JSON.parse(t): null;
 }
+const tok=()=>S.teacher?S.pin:S.stoken;
+async function rpc(fn,args){ return rest('rpc/'+fn,{method:'POST',body:JSON.stringify(args)}); }
 const ls = { get(k,d){ try{ return JSON.parse(localStorage.getItem(k)) ?? d }catch(e){ return d } }, set(k,v){ try{ localStorage.setItem(k, JSON.stringify(v)) }catch(e){} } };
 let memStore = {cards:[], reacts:[], rooms:{}, audio:{}};
 function demoLoad(){ const d = ls.get('ty2_demo', null); if(d) memStore = {audio:{}, ...d}; }
@@ -217,12 +275,29 @@ function esc(s){ return String(s??'').replace(/[&<>"']/g, m=>({'&':'&amp;','<':'
 
 const api = {
   async getRoom(code){
-    if(REMOTE){ const r = await rest(`ty_rooms?class_code=eq.${enc(code)}&select=*`); return r[0] || {class_code:code, wall_open:false}; }
+    if(REMOTE){ const r = await rest(`ty_rooms?class_code=eq.${enc(code)}&select=class_code,wall_open`); return r[0] || {class_code:code, wall_open:false, missing:true}; }
     return memStore.rooms[code] || {class_code:code, wall_open:false};
   },
-  async setRoom(code, patch){
-    if(REMOTE){ await rest('ty_rooms?on_conflict=class_code', {method:'POST', headers:{Prefer:'resolution=merge-duplicates'}, body:JSON.stringify({class_code:code, ...patch})}); return; }
-    memStore.rooms[code] = {...(memStore.rooms[code]||{class_code:code}), ...patch}; demoSave();
+  async signup(reg, tid, pw){
+    if(REMOTE) return await rpc('ty_signup',{reg,tid_:tid,pw});
+    return {token:'demo:'+tid, role:'teacher', tid};
+  },
+  async sessionLogin(tid, pw){
+    if(REMOTE){ try{ return await rpc('ty_session_login',{tid_:tid,pw}); }catch(e){ return {error:String(e.message||e)}; } }
+    const t=(tid||'').trim().toLowerCase();
+    if((t===''||t==='admin') && pw===DEMO_ADMIN) return {token:'demo:admin', role:'admin', tid:'admin'};
+    if(t && t!=='admin' && pw===DEMO_TEACHER) return {token:'demo:'+t, role:'teacher', tid:t};
+    return null;
+  },
+  async logout(){ if(REMOTE && S.pin){ try{ await rpc('ty_logout',{p:S.pin}); }catch(e){} } },
+  async myRooms(){
+    if(REMOTE) return await rpc('ty_my_rooms',{p:S.pin});
+    return Object.values(memStore.rooms).filter(r=>S.adminPin||r.owner===S.tid).map(r=>({class_code:r.class_code,n:memStore.cards.filter(c=>c.class_code===r.class_code).length,owner:r.owner})).sort((a,b)=>a.class_code<b.class_code?-1:1);
+  },
+  async createRoom(code){
+    if(REMOTE){ await rpc('ty_create_room',{p:S.pin,code}); return; }
+    if(memStore.rooms[code]) throw new Error('exists');
+    memStore.rooms[code]={class_code:code,wall_open:true,owner:S.tid}; demoSave();
   },
   async cards(code){
     if(REMOTE) return rest(`ty_cards?class_code=eq.${enc(code)}&select=*&order=created_at.desc`);
@@ -233,32 +308,40 @@ const api = {
     return memStore.reacts.filter(r=>r.class_code===code);
   },
   async saveCard(c){
-    if(REMOTE){ await rest('ty_cards?on_conflict=class_code,num', {method:'POST', headers:{Prefer:'resolution=merge-duplicates'}, body:JSON.stringify(c)}); return; }
-    const i = memStore.cards.findIndex(x=>x.class_code===c.class_code && x.num===c.num);
+    if(REMOTE){ await rpc('ty_save_card',{p:tok(),c}); return; }
+    const i = memStore.cards.findIndex(x=>x.class_code===c.class_code && x.num===c.num && (x.to_who||'Mr. Taylor')===(c.to_who||'Mr. Taylor'));
     if(i>=0) memStore.cards[i] = {...memStore.cards[i], ...c};
     else memStore.cards.push({id:uid(), hidden:false, pinned:false, has_audio:false, created_at:new Date().toISOString(), ...c});
     demoSave();
   },
   async patchCard(id, patch){
-    if(REMOTE){ await rest(`ty_cards?id=eq.${id}`, {method:'PATCH', body:JSON.stringify(patch)}); return; }
+    if(REMOTE){ if(S.teacher) await rpc('ty_teacher_patch',{p:S.pin,card:id,patch}); else if('audio_public' in patch) await rpc('ty_set_audio_public',{p:S.stoken,card:id,pub:!!patch.audio_public}); return; }
     const c = memStore.cards.find(x=>x.id===id); if(c) Object.assign(c, patch); demoSave();
   },
+  async adminDel(id){
+    if(REMOTE){ await rpc('ty_admin_delete_card',{p:S.adminPin,card:id}); return; }
+    memStore.cards = memStore.cards.filter(x=>x.id!==id); memStore.reacts = memStore.reacts.filter(r=>r.card_id!==id); delete memStore.audio[id]; demoSave();
+  },
+  async cardById(id){
+    if(REMOTE){ const r=await rest(`ty_cards?id=eq.${id}&select=*`); return r[0]||null; }
+    return memStore.cards.find(c=>c.id===id)||null;
+  },
   async delCard(id){
-    if(REMOTE){ await rest(`ty_cards?id=eq.${id}`, {method:'DELETE'}); return; }
+    if(REMOTE){ await rpc('ty_delete_card',{p:S.pin,card:id}); return; }
     memStore.cards = memStore.cards.filter(x=>x.id!==id); memStore.reacts = memStore.reacts.filter(r=>r.card_id!==id); delete memStore.audio[id]; demoSave();
   },
   async react(r){
-    if(REMOTE){ await rest('ty_reactions?on_conflict=card_id,voter', {method:'POST', headers:{Prefer:'resolution=merge-duplicates'}, body:JSON.stringify(r)}); return; }
+    if(REMOTE){ await rpc('ty_react',{p:S.stoken,card:r.card_id,h:r.heart===undefined?null:r.heart,nt:r.note===undefined?null:r.note}); return; }
     const i = memStore.reacts.findIndex(x=>x.card_id===r.card_id && x.voter===r.voter);
     if(i>=0) memStore.reacts[i] = {...memStore.reacts[i], ...r}; else memStore.reacts.push({heart:false, note:null, ...r});
     demoSave();
   },
   async getAudio(id){
-    if(REMOTE){ const r = await rest(`ty_audio?card_id=eq.${id}&select=mime,b64`); return r[0]||null; }
+    if(REMOTE){ return await rpc('ty_get_audio',{card:id,p:tok()||null}); }
     return memStore.audio[id]||null;
   },
   async saveAudio(a){
-    if(REMOTE){ await rest('ty_audio?on_conflict=card_id', {method:'POST', headers:{Prefer:'resolution=merge-duplicates'}, body:JSON.stringify(a)}); return; }
+    if(REMOTE){ await rpc('ty_save_audio',{p:S.stoken,card:a.card_id,m:a.mime,data:a.b64}); return; }
     memStore.audio[a.card_id] = {mime:a.mime, b64:a.b64}; demoSave();
   }
 };
@@ -305,7 +388,7 @@ const GLOSS = { wise:'지혜로운', true:'진짜의', light:'빛', hope:'희망
 };
 
 /* ===== 상태 ===== */
-const S = {screen:'entry', code:'', num:null, teacher:false,
+const S = {screen:'entry', code:'', num:null, teacher:false, pin:null, adminPin:null, tid:'', stoken:null,
   draft:{to:'Mr. Taylor',thanks:'',youare:'',becauseof:'',withoutyou:'',will:'',bg:'hanji',sticker:'🕊️'},
   room:{wall_open:false}, cards:[], reacts:[], read:new Set(), focus:'thanks', timer:null,
   gloss:{}, rec:{blob:null, b64:null, mime:'', url:null, state:'idle'}};
@@ -412,7 +495,7 @@ function toast(msg){
   t.style.cssText='position:fixed;left:50%;bottom:30px;transform:translateX(-50%);background:#233A52;color:#fff;padding:10px 22px;border-radius:999px;z-index:50;font-size:16px';
   t.textContent=msg; document.body.appendChild(t); setTimeout(()=>t.remove(),2200);
 }
-function setWho(){ $('#who').textContent = S.code? `${S.code} · ${S.teacher?'Teacher':'No. '+S.num}` : ''; $('#outBtn').style.display = S.code?'':'none'; }
+function setWho(){ $('#who').textContent = S.code? `${S.code} · ${S.teacher?'Teacher':'No. '+S.num}` : (S.teacher?'Teacher · '+S.tid:''); $('#outBtn').style.display = (S.code||S.teacher)?'':'none'; }
 
 /* ===== 화면 ===== */
 function viewEntry(){
@@ -422,21 +505,47 @@ function viewEntry(){
     <div class="row"><div><label>반 코드 (선생님이 알려 줘요)</label><input id="eCode" value="${esc(qp)}" maxlength="20" placeholder="HAPPY51"></div>
     <div style="max-width:150px"><label>번호</label><input id="eNum" type="number" min="1" max="60" placeholder="7"></div></div>
     <p class="small" style="margin-top:14px">이름은 쓰지 않아요. 번호만 카드에 나와요.</p>
-    <button class="btn" id="go" style="margin-top:6px">시작하기</button><div class="warn" id="eWarn"></div><button class="btn ghost" id="mapE" style="margin-top:18px;padding:6px 16px;font-size:15px">🗺 감사 지도 보기</button></div>`;
+    <button class="btn" id="go" style="margin-top:6px">시작하기</button><div id="pinArea"></div><div class="warn" id="eWarn"></div><button class="btn ghost" id="mapE" style="margin-top:18px;padding:6px 16px;font-size:15px">🗺 감사 지도 보기</button></div>`;
   $('#mapE').onclick=()=>{ S.screen='map'; render(); };
-  $('#go').onclick = ()=>{
-    const code = $('#eCode').value.trim().toUpperCase().replace(/\s+/g,''); const num = parseInt($('#eNum').value,10);
-    if(!code){ $('#eWarn').textContent='반 코드를 써 주세요.'; return; }
-    if(!num || num<1){ $('#eWarn').textContent='번호를 써 주세요.'; return; }
-    S.code=code; S.num=num; S.teacher=false; enter();
+  if(qp) setTimeout(()=>{ const n=$('#eNum'); if(n) n.focus(); },50);
+  $('#go').onclick = async()=>{
+    const code = $('#eCode').value.trim().toUpperCase().replace(/\s+/g,''); const num = parseInt($('#eNum').value,10); const w=$('#eWarn');
+    if(!code){ w.textContent='반 코드를 써 주세요.'; return; }
+    if(!num || num<1){ w.textContent='번호를 써 주세요.'; return; }
+    if(!REMOTE){ S.code=code; S.num=num; S.teacher=false; enter(); return; }
+    $('#go').disabled=true; w.textContent='';
+    let r; try{ r=await rpc('ty_student_enter',{code,n:num,pin:'',create_:false}); }catch(e){ w.textContent='연결이 안 돼요. 잠시 뒤 다시 눌러 주세요.'; $('#go').disabled=false; return; }
+    if(r.status==='noroom'){ w.textContent='선생님이 열어 준 반 코드가 아니에요. 코드를 다시 확인해 주세요.'; $('#go').disabled=false; return; }
+    if(r.status==='badnum'){ w.textContent='번호를 다시 확인해 주세요.'; $('#go').disabled=false; return; }
+    if(r.status==='locked'){ w.textContent='핀을 여러 번 틀려서 잠시 잠겼어요. 5분 뒤에 다시 해 보거나 선생님께 말씀드려요.'; $('#go').disabled=false; return; }
+    const isNew=r.status==='new'; $('#eCode').disabled=true; $('#eNum').disabled=true; $('#go').style.display='none';
+    $('#pinArea').innerHTML=`<div style="background:#FBF4E2;border-radius:12px;padding:12px 14px;margin-top:10px">
+      <div style="margin-bottom:8px">${isNew?'<b>처음이에요!</b> 나만의 <b>숫자 4자리 핀</b>을 정해요. 꼭 기억해 두세요.':'내 <b>핀 4자리</b>를 써요.'}</div>
+      <input id="pin" type="password" inputmode="numeric" maxlength="4" placeholder="● ● ● ●" style="width:150px;letter-spacing:6px;text-align:center">
+      ${isNew?'<input id="pin2" type="password" inputmode="numeric" maxlength="4" placeholder="한 번 더" style="width:150px;letter-spacing:6px;text-align:center;margin-left:8px">':''}
+      <button class="btn" id="go2" style="margin-left:8px">들어가기</button> <button class="btn ghost" id="back0" style="padding:6px 14px;font-size:14px">← 처음으로</button></div>`;
+    $('#pin').focus(); $('#back0').onclick=()=>viewEntry();
+    const submit=async()=>{
+      const pin=$('#pin').value; if(!/^[0-9]{4}$/.test(pin)){ w.textContent='숫자 4자리로 써 주세요.'; return; }
+      if(isNew && $('#pin2').value!==pin){ w.textContent='핀이 서로 달라요. 한 번 더 똑같이 써 주세요.'; return; }
+      $('#go2').disabled=true; w.textContent='';
+      let r2; try{ r2=await rpc('ty_student_enter',{code,n:num,pin,create_:isNew}); }catch(e){ w.textContent='연결이 안 돼요. 잠시 뒤 다시 눌러 주세요.'; $('#go2').disabled=false; return; }
+      if(r2.status==='ok'){ S.stoken=r2.token; S.code=code; S.num=num; S.teacher=false; enter(); return; }
+      w.textContent=r2.status==='bad'?'핀이 달라요. 다시 써 보세요. (5번 틀리면 5분 동안 잠겨요)':r2.status==='locked'?'핀을 여러 번 틀려서 잠시 잠겼어요. 5분 뒤에 다시 해 보거나 선생님께 말씀드려요.':'다시 해 주세요.'; $('#go2').disabled=false; $('#pin').value=''; $('#pin').focus();
+    };
+    $('#go2').onclick=submit; $('#pin').onkeydown=e=>{ if(e.key==='Enter'&&!isNew) submit(); }; if(isNew) $('#pin2').onkeydown=e=>{ if(e.key==='Enter') submit(); };
   };
 }
 async function enter(){
   setWho(); await refresh();
-  const mine = S.cards.find(c=>c.num===S.num);
-  if(mine){ S.draft = {to:mine.to_who||'Mr. Taylor', thanks:mine.thanks||'', youare:mine.youare||'', becauseof:mine.becauseof||'', withoutyou:mine.withoutyou||'', will:mine.will||'', audio_public:!!mine.audio_public, bg:mine.bg||'hanji', sticker:mine.sticker||'🕊️'}; }
+  const mine = myCards()[0];
+  if(mine) loadDraft(mine); else { S.draft=blankDraft(); S.rec={blob:null,b64:null,mime:'',url:null,state:'idle'}; }
   S.screen = (mine||S.teacher)? 'wall' : 'write'; render();
 }
+function myCards(){ return S.teacher? [] : S.cards.filter(c=>c.num===S.num).sort((a,b)=>RECIPIENTS.findIndex(r=>r[0]===(a.to_who||'Mr. Taylor'))-RECIPIENTS.findIndex(r=>r[0]===(b.to_who||'Mr. Taylor'))); }
+function myCard(to){ return S.cards.find(c=>c.num===S.num && (c.to_who||'Mr. Taylor')===to); }
+function blankDraft(to){ return {to:to||'Mr. Taylor',thanks:'',youare:'',becauseof:'',withoutyou:'',will:'',audio_public:false,bg:'hanji',sticker:'🕊️'}; }
+function loadDraft(m){ S.draft = {to:m.to_who||'Mr. Taylor', thanks:m.thanks||'', youare:m.youare||'', becauseof:m.becauseof||'', withoutyou:m.withoutyou||'', will:m.will||'', audio_public:!!m.audio_public, bg:m.bg||'hanji', sticker:m.sticker||'🕊️'}; }
 async function refresh(){
   try{ const [room,cards,reacts] = await Promise.all([api.getRoom(S.code), api.cards(S.code), api.reacts(S.code)]); S.room=room; S.cards=cards; S.reacts=reacts; }
   catch(e){ console.error(e); toast('연결이 불안정해요. 잠시 뒤 다시 해 봐요.'); }
@@ -447,7 +556,7 @@ function viewWrite(){
   const line=(k)=>{ const f=FIELDS[k]; return `<div class="ln">${f.pre?`<span>${f.pre}</span>`:''}<input data-k="${k}" value="${esc(d[k])}" placeholder="${esc(f.ph)}" autocomplete="off" spellcheck="true" lang="en" autocapitalize="off"></div><div class="ck" id="ck-${k}"></div>`; };
   $('#app').innerHTML = stepsHTML(0)+`<div class="write">
     <div class="card bg-${d.bg}">
-      <div class="ln">Dear <select id="toSel" class="tosel">${RECIPIENTS.map(r=>`<option value="${r[0]}" ${d.to===r[0]?'selected':''}>${r[0]}</option>`).join('')}</select>,</div>
+      <div class="ln">Dear <select id="toSel" class="tosel" ${myCards().length?'disabled title="받는 분은 바꿀 수 없어요"':''}>${RECIPIENTS.map(r=>`<option value="${r[0]}" ${d.to===r[0]?'selected':''}>${r[0]}</option>`).join('')}</select>,</div>
       <div class="ck" id="toInfo" style="color:#57544A"></div>
       ${ORDER.map(line).join('')}
       <div class="from">From, No. ${S.num}</div>
@@ -520,7 +629,7 @@ function viewRec(){
   $('#back').onclick=()=>{ if(S.rec.state==='rec') stopRec(); S.screen='deco'; render(); };
   $('#post').onclick=async ()=>{
     if(S.rec.state==='rec'){ $('#rWarn').textContent='먼저 녹음을 멈춰 주세요.'; return; }
-    const hadAudio=(S.cards.find(c=>c.num===S.num)||{}).has_audio;
+    const hadAudio=(myCard(S.draft.to)||{}).has_audio;
     if(S.rec.state!=='done' && !hadAudio){ $('#rWarn').textContent='내 목소리를 먼저 녹음해 주세요. 🎙 녹음 시작을 눌러요.'; return; }
     S.draft.audio_public=$('#pubChk').checked;
     $('#post').disabled=true;
@@ -528,27 +637,27 @@ function viewRec(){
       const d=S.draft;
       await api.saveCard({class_code:S.code, num:S.num, to_who:d.to, thanks:d.thanks.trim(), youare:d.youare.trim(), becauseof:(d.becauseof||'').trim(), withoutyou:(d.withoutyou||'').trim(), will:(d.will||'').trim(), bg:d.bg, sticker:d.sticker});
       if(S.rec.state==='done' && S.rec.b64){
-        await refresh(); const me=S.cards.find(c=>c.num===S.num);
+        await refresh(); const me=myCard(d.to);
         if(me){ await api.saveAudio({card_id:me.id, class_code:S.code, mime:S.rec.mime, b64:S.rec.b64}); await api.patchCard(me.id,{has_audio:true}); }
       }
-      { await refresh(); const me2=S.cards.find(c=>c.num===S.num); if(me2) await api.patchCard(me2.id,{audio_public:!!S.draft.audio_public}); }
+      { await refresh(); const me2=myCard(d.to); if(me2) await api.patchCard(me2.id,{audio_public:!!S.draft.audio_public}); }
       await refresh(); S.screen='wall'; render(); toast('카드를 올렸어요!');
-    }catch(e){ console.error(e); $('#rWarn').innerHTML='올리지 못했어요. 다시 눌러 보세요.<br><span class="small">(원인 : '+esc(String(e.message||e).slice(0,160))+')</span>'; $('#post').disabled=false; }
+    }catch(e){ console.error(e); if(String(e.message||e).includes('forbidden')){ $('#rWarn').textContent='입장 시간이 지났어요. 오른쪽 위 "나가기"를 누르고 다시 들어와 주세요. (쓴 내용은 다시 써야 할 수 있어요)'; $('#post').disabled=false; return; } $('#rWarn').innerHTML='올리지 못했어요. 다시 눌러 보세요.<br><span class="small">(원인 : '+esc(String(e.message||e).slice(0,160))+')</span>'; $('#post').disabled=false; }
   };
 }
 
 function viewWall(){
-  const open=S.room.wall_open||S.teacher;
+  const open=true;
   const allVis=S.cards.filter(c=>S.teacher||!c.hidden);
   const tf=S.teacher?(S.tf||'all'):'all';
   const visible=tf==='all'?allVis:allVis.filter(c=>(c.to_who||c.to)===tf);
-  const mine=S.cards.find(c=>c.num===S.num); const need=3;
-  const readN=S.reacts.filter(r=>r.voter===S.num && r.heart && visible.some(c=>c.id===r.card_id && c.num!==S.num)).length;
+  const mineAll=myCards(); const left=RECIPIENTS.filter(r=>!myCard(r[0]));
   let head=`<div class="wallhead"><h2>Thank You Wall</h2>`;
-  if(!S.teacher) head+=`<span class="progress ${readN>=need?'done':''}">친구 카드에 ♥ 누르기 ${Math.min(readN,need)}/${need}${readN>=need?' ✓':''}</span>`;
-  if(!S.teacher && mine) head+=`<button class="btn ghost" id="edit" style="padding:6px 16px;font-size:15px">내 카드 고치기</button>`;
+  if(!S.teacher) head+=mineAll.map(m=>`<button class="btn ghost" data-edit="${m.id}" style="padding:6px 16px;font-size:15px">✏ ${mineAll.length>1?esc(m.to_who||'Mr. Taylor')+' 카드':'내 카드'} 고치기</button>`).join('');
+  if(!S.teacher && mineAll.length && left.length) head+=`<button class="btn gold" id="more" style="padding:6px 16px;font-size:15px">✉ 다른 분께도 쓰기 (심화)</button>`;
   head+=`<span style="flex:1"></span><button class="btn ghost" id="mapB" style="padding:6px 16px;font-size:15px">🗺 감사 지도</button> <button class="btn ghost" id="reload" style="padding:6px 16px;font-size:15px">⟳ 새로고침</button>`;
-  if(S.teacher) head+=`<label class="progress" style="cursor:pointer"><input type="checkbox" id="openT" ${S.room.wall_open?'checked':''}> 학생에게 벽 공개</label><button class="btn gold" id="spot" style="padding:6px 16px;font-size:15px">📌 대표 카드 크게 보기</button>`;
+  if(S.teacher) head+=`<button class="btn ghost" id="wQR" style="padding:6px 16px;font-size:15px">📱 QR</button><button class="btn ghost" id="wPin" style="padding:6px 16px;font-size:15px">🔄 핀 초기화</button><button class="btn ghost" id="wBack" style="padding:6px 16px;font-size:15px">← 내 반 목록</button>`;
+  if(S.teacher) head+=`<button class="btn gold" id="spot" style="padding:6px 16px;font-size:15px">📌 대표 카드 크게 보기</button>`;
   head+=`</div>`;
   if(S.teacher){ const names=RECIPIENTS.map(r=>r.name||r[0]||r); head+=`<div class="tabs" style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 10px">`+[['all','전체']].concat(names.map(n=>[n,n])).map(([k,l])=>{ const n=k==='all'?allVis.length:allVis.filter(c=>(c.to_who||c.to)===k).length; return `<button class="btn ${tf===k?'':'ghost'}" data-tf="${esc(k)}" style="padding:5px 14px;font-size:15px">${esc(l)} <b>${n}</b></button>`; }).join('')+`</div>`; }
   let body;
@@ -556,11 +665,23 @@ function viewWall(){
   else if(!visible.length) body=`<div class="empty">${tf==='all'?'아직 카드가 없어요.':'이 분께 쓴 카드가 아직 없어요.'}</div>`;
   else body=`<div class="wall">${visible.map(c=>miniHTML(c,S.teacher?teacherBar(c):'')).join('')}</div>`;
   $('#app').innerHTML=stepsHTML(3)+head+body;
-  if($('#edit')) $('#edit').onclick=()=>{ S.screen='write'; render(); };
+  document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{ const m=S.cards.find(c=>c.id===b.dataset.edit); if(m){ loadDraft(m); S.screen='write'; render(); } });
+  if($('#more')) $('#more').onclick=()=>{
+    $('#modalRoot').innerHTML=`<div class="mask" id="mask"><div class="modal" style="max-width:620px"><h3>✉ 또 누구에게 쓸까요? <span class="small">(심화)</span></h3>
+      ${left.map(r=>`<button class="btn ghost" data-more="${esc(r[0])}" style="display:block;width:100%;text-align:left;margin:8px 0;padding:10px 16px"><b>${esc(r[0])}</b><br><span class="small">${esc(r[1])}</span></button>`).join('')}
+      <div style="text-align:right"><button class="btn" id="close" style="padding:5px 18px;font-size:15px">닫기</button></div></div></div>`;
+    $('#close').onclick=closeModal; $('#mask').onclick=e=>{ if(e.target.id==='mask') closeModal(); };
+    document.querySelectorAll('[data-more]').forEach(b=>b.onclick=()=>{ S.draft=blankDraft(b.dataset.more); S.rec={blob:null,b64:null,mime:'',url:null,state:'idle'}; S.focus='thanks'; $('#modalRoot').innerHTML=''; S.screen='write'; render(); });
+  };
   $('#reload').onclick=async()=>{ await refresh(); viewWall(); };
   $('#mapB').onclick=()=>{ S.screen='map'; render(); };
-  if($('#openT')) $('#openT').onchange=async e=>{ await api.setRoom(S.code,{wall_open:e.target.checked}); await refresh(); viewWall(); };
   if($('#spot')) $('#spot').onclick=openSpot;
+  if($('#wQR')) $('#wQR').onclick=()=>showQR(S.code);
+  if($('#wPin')) $('#wPin').onclick=async()=>{
+    const n=parseInt(prompt('핀을 초기화할 학생 번호를 써 주세요.\n(그 학생이 다음에 들어올 때 새 핀을 정해요. 카드는 그대로 남아요)')||'',10); if(!n) return;
+    try{ if(REMOTE) await rpc('ty_reset_pin',{p:S.pin,code:S.code,n}); toast(n+'번 핀을 초기화했어요.'); }catch(e){ toast('초기화하지 못했어요.'); }
+  };
+  if($('#wBack')) $('#wBack').onclick=()=>{ S.code=''; S.screen='dash'; render(); };
   document.querySelectorAll('[data-tf]').forEach(b=>b.onclick=()=>{ S.tf=b.dataset.tf; viewWall(); });
   document.querySelectorAll('.mini').forEach(m=>m.onclick=e=>{ if(e.target.closest('.tbar')) return; openCard(m.dataset.id); });
   document.querySelectorAll('.tbar button').forEach(b=>b.onclick=async e=>{
@@ -594,14 +715,14 @@ async function openCard(id){
     <div style="text-align:right;margin-top:12px"><button class="btn ghost" id="close">닫기</button></div></div></div>`;
   bindTokens('.modal');
   $('#hear').onclick=()=>speakCard(c,.9); $('#hearSlow').onclick=()=>speakCard(c,.65);
-  if($('#hearVoice')) $('#hearVoice').onclick=async()=>{ const a=await api.getAudio(id); if(!a){ toast('목소리를 찾지 못했어요.'); return; } new Audio(`data:${a.mime};base64,${a.b64}`).play(); };
+  if($('#hearVoice')) $('#hearVoice').onclick=async()=>{ const a=(isMine&&S.rec&&S.rec.b64&&!c.audio_public)?{mime:S.rec.mime,b64:S.rec.b64}:await api.getAudio(id); if(!a){ toast(isMine?'비공개 목소리는 선생님만 들을 수 있어요.':'목소리를 찾지 못했어요.'); return; } new Audio(`data:${a.mime};base64,${a.b64}`).play(); };
   $('#close').onclick=closeModal; $('#mask').onclick=e=>{ if(e.target.id==='mask') closeModal(); };
   if(!(isMine||S.teacher)){
     $('#hb').onclick=async()=>{ const v=!my.heart; await api.react({card_id:id,class_code:S.code,voter:S.num,heart:v}); await refresh(); openCard(id); };
     document.querySelectorAll('[data-n]').forEach(b=>b.onclick=async()=>{ await api.react({card_id:id,class_code:S.code,voter:S.num,note:b.dataset.n}); await refresh(); openCard(id); });
   }
 }
-function closeModal(){ try{speechSynthesis.cancel()}catch(e){} $('#modalRoot').innerHTML=''; viewWall(); }
+function closeModal(){ try{speechSynthesis.cancel()}catch(e){} $('#modalRoot').innerHTML=''; if(S.screen==='wall') viewWall(); }
 
 function openEdit(id){
   const c=S.cards.find(x=>x.id===id); if(!c) return;
@@ -678,7 +799,7 @@ function mapSVG(list){
   const pos=dotLayout(list);
   const dots=list.map((c,k)=>{ const [x,y]=pos[k], mine=S.code&&c.class_code===S.code, w=sz*1.5, h=sz*1.05, rot=((hash32(c.id)%17)-8);
     const col=mine?'#A9741E':'#233A52';
-    return `<g class="${newest.has(c.id)?'pulse':''}" transform="translate(${x.toFixed(1)},${y.toFixed(1)}) rotate(${rot}) translate(${(-w/2).toFixed(1)},${(-h/2).toFixed(1)})"><rect width="${w.toFixed(1)}" height="${h.toFixed(1)}" rx="${(sz*.05).toFixed(1)}" fill="${mine?'#F2D9A0':'#FFFDF6'}" stroke="${col}" stroke-width="${sw.toFixed(2)}"/><polyline points="0,0 ${(w/2).toFixed(1)},${(h*.62).toFixed(1)} ${w.toFixed(1)},0" fill="none" stroke="${col}" stroke-width="${(sw*.8).toFixed(2)}"/>${sz>=26?`<circle cx="${(w/2).toFixed(1)}" cy="${(h*.62).toFixed(1)}" r="${(sz*.09).toFixed(1)}" fill="#A9741E"/>`:''}</g>`; }).join('');
+    return `<g class="${newest.has(c.id)?'pulse':''}" data-id="${c.id}" style="cursor:pointer" transform="translate(${x.toFixed(1)},${y.toFixed(1)}) rotate(${rot}) translate(${(-w/2).toFixed(1)},${(-h/2).toFixed(1)})"><rect width="${w.toFixed(1)}" height="${h.toFixed(1)}" rx="${(sz*.05).toFixed(1)}" fill="${mine?'#F2D9A0':'#FFFDF6'}" stroke="${col}" stroke-width="${sw.toFixed(2)}"/><polyline points="0,0 ${(w/2).toFixed(1)},${(h*.62).toFixed(1)} ${w.toFixed(1)},0" fill="none" stroke="${col}" stroke-width="${(sw*.8).toFixed(2)}"/>${sz>=26?`<circle cx="${(w/2).toFixed(1)}" cy="${(h*.62).toFixed(1)}" r="${(sz*.09).toFixed(1)}" fill="#A9741E"/>`:''}</g>`; }).join('');
   return `<svg class="mapsvg" viewBox="-10 -10 600 880" preserveAspectRatio="xMidYMid meet" role="img" aria-label="감사 편지 지도">
     <polygon points="${poly}" fill="#EDE6D3" stroke="#233A52" stroke-width="2" stroke-linejoin="round"/>
     <ellipse cx="${JEJU[0]}" cy="${JEJU[1]}" rx="${JRX.toFixed(1)}" ry="${JRY.toFixed(1)}" fill="#EDE6D3" stroke="#233A52" stroke-width="2"/>
@@ -692,32 +813,124 @@ function mapSide(list){
   return `<div class="mapside"><div class="small">지금까지 모인 감사 카드</div><div class="big">${n}<span style="font-size:.35em"> 장</span></div>
     <div>${rooms}개 반이 함께 썼어요</div>
     <div><div class="small" style="margin-bottom:4px">다음 목표 ${next}장까지</div><div class="bar"><i style="width:${pct}%"></i></div></div>
-    <div class="leg">✉ 편지 한 통이 카드 한 장이에요. ${S.code?'<b style="color:#A9741E">금색</b>은 우리 반이에요.':''}<br>카드 내용은 이 지도에 나오지 않아요.</div></div>`;
+    <div class="leg">✉ 편지 한 통이 카드 한 장이에요. ${S.code?'<b style="color:#A9741E">금색</b>은 우리 반이에요.':''}<br>편지를 누르면 내용을 읽어 볼 수 있어요.</div></div>`;
 }
 async function loadMap(){
   const el=$('#mapBody'); if(!el) return;
-  try{ const list=await allCards(); el.innerHTML=mapSVG(list)+mapSide(list); }
+  try{ const list=await allCards(); el.innerHTML=mapSVG(list)+mapSide(list); bindMapAdmin(); }
   catch(e){ console.error(e); el.innerHTML='<div class="empty">지도를 불러오지 못했어요.</div>'; }
 }
+function bindMapAdmin(){
+  document.querySelectorAll('.mapsvg g[data-id]').forEach(g=>g.onclick=()=>openMapCard(g.dataset.id));
+}
+async function openMapCard(id){
+  let c=null; try{ c=await api.cardById(id); }catch(e){}
+  if(!c){ toast('카드를 찾지 못했어요.'); return; }
+  $('#modalRoot').innerHTML=`<div class="mask" id="mask"><div class="modal" style="max-width:560px">
+    ${cardHTML(c,'No. '+c.num,false)}
+    <div class="audio-row" style="margin-top:12px"><button class="btn ghost" id="mHear" style="padding:5px 14px;font-size:15px">🔊 읽어 주기</button>
+      ${S.adminPin?`<span class="small">${esc(c.class_code)} · No. ${c.num}</span><button class="btn ghost" id="mDel" style="padding:5px 14px;font-size:15px;color:#B3402A;border-color:#B3402A">🗑 지도에서 지우기</button>`:''}
+      <span style="flex:1"></span><button class="btn" id="close" style="padding:5px 18px;font-size:15px">닫기</button></div></div></div>`;
+  $('#close').onclick=closeModal; $('#mask').onclick=e=>{ if(e.target.id==='mask') closeModal(); };
+  $('#mHear').onclick=()=>speak(sentences(c).join(' '),0.9);
+  if($('#mDel')) $('#mDel').onclick=async()=>{
+    if(!confirm('이 편지를 지도에서 지울까요? (되돌릴 수 없어요)')) return;
+    try{ await api.adminDel(id); toast('지웠어요.'); }catch(e){ toast('지우지 못했어요.'); }
+    closeModal(); loadMap();
+  };
+}
 function viewMap(){
-  $('#app').innerHTML=`<div class="mapview"><div class="maphead"><h2>감사 편지 지도</h2><span class="small">3·1운동 때는 하나의 나라였어요 · 카드가 한 장씩 한반도를 채워요</span><span style="flex:1"></span><button class="btn ghost" id="mapBack" style="padding:6px 16px;font-size:15px">← 돌아가기</button></div><div class="mapbody" id="mapBody"><div class="empty">불러오는 중…</div></div></div>`;
-  $('#mapBack').onclick=()=>{ S.screen=(S.code&&S.num!=null)||S.teacher?'wall':'entry'; render(); };
+  $('#app').innerHTML=`<div class="mapview"><div class="maphead"><h2>감사 편지 지도</h2><span class="small">3·1운동 때는 하나의 나라였어요 · 카드가 한 장씩 한반도를 채워요</span><span style="flex:1"></span><button class="btn ghost" id="mapAdm" style="padding:6px 16px;font-size:15px">${S.adminPin?'🔑 삭제 모드 켜짐 (끄기)':'🔑 관리자'}</button> <button class="btn ghost" id="mapBack" style="padding:6px 16px;font-size:15px">← 돌아가기</button></div><div class="mapbody" id="mapBody"><div class="empty">불러오는 중…</div></div></div>`;
+  $('#mapAdm').onclick=async()=>{
+    if(S.adminPin){ S.adminPin=null; viewMap(); return; }
+    const pin=prompt('관리자 비밀번호'); if(!pin) return;
+    const ses=await api.sessionLogin('',pin);
+    if(!ses||ses.error||ses.role!=='admin'){ toast('관리자 비밀번호가 달라요.'); return; }
+    S.adminPin=ses.token; toast('편지를 누르면 내용을 보고 지울 수 있어요.'); viewMap();
+  };
+  $('#mapBack').onclick=()=>{ S.screen=S.teacher?(S.code?'wall':'dash'):(S.code&&S.num!=null)?'wall':'entry'; render(); };
   loadMap();
 }
 
 function render(){
   setWho();
   if(S.timer){ clearInterval(S.timer); S.timer=null; }
-  ({entry:viewEntry, write:viewWrite, deco:viewDeco, rec:viewRec, wall:viewWall, map:viewMap}[S.screen])();
+  ({entry:viewEntry, write:viewWrite, deco:viewDeco, rec:viewRec, wall:viewWall, map:viewMap, dash:viewDash}[S.screen])();
   if(S.screen==='map') S.timer=setInterval(loadMap, 15000);
   if(S.screen==='wall') S.timer=setInterval(async()=>{ if($('#modalRoot').innerHTML) return; await refresh(); viewWall(); }, 8000);
 }
-$('#teacherBtn').onclick=()=>{
-  const code=(S.code||prompt('반 코드를 입력하세요 (예 : HAPPY51)')||'').trim().toUpperCase(); if(!code) return;
-  const pin=prompt('교사 비밀번호'); if(pin!==TEACHER_PIN){ if(pin!==null) toast('비밀번호가 달라요.'); return; }
-  S.code=code; S.teacher=true; S.num=0; enter();
-};
-$('#outBtn').onclick=()=>{ S.code=''; S.num=null; S.teacher=false; S.screen='entry'; S.read=new Set(); S.draft={to:'Mr. Taylor',thanks:'',youare:'',becauseof:'',withoutyou:'',will:'',bg:'hanji',sticker:'🕊️'}; render(); };
+function teacherModal(){
+  $('#modalRoot').innerHTML=`<div class="mask" id="mask"><div class="modal" style="max-width:460px">
+    <h3 id="tTitle">🔑 교사 로그인</h3>
+    <label class="small">아이디</label><input id="tId" autocomplete="off" placeholder="예 : olivia" style="width:100%;margin-bottom:8px">
+    <label class="small">비밀번호</label><input id="tPw" type="password" style="width:100%;margin-bottom:8px">
+    <div id="tNew" style="display:none;background:#FBF4E2;border-radius:10px;padding:10px 12px;margin-bottom:8px">
+      <div class="small" style="margin-bottom:6px"><b>처음이세요?</b> 아이디(영어·숫자 2~20자)와 비밀번호(4자 이상)를 정하고, 안내받은 교사 등록 코드를 입력해요.</div>
+      ${REMOTE?`<input id="tReg" type="password" placeholder="교사 등록 코드" style="width:100%">`:'<div class="small">연습 모드에서는 등록 코드가 필요 없어요.</div>'}
+    </div>
+    <div class="warn" id="tWarn"></div>
+    <div style="display:flex;gap:8px;align-items:center;margin-top:10px"><button class="btn ghost" id="tSwitch" style="padding:6px 14px;font-size:14px">처음이에요 (계정 만들기)</button><span style="flex:1"></span><button class="btn ghost" id="tCancel" style="padding:6px 18px">닫기</button><button class="btn" id="tGo" style="padding:6px 22px">로그인</button></div></div></div>`;
+  let signup=false; const warn=t=>{ $('#tWarn').textContent=t; };
+  $('#tCancel').onclick=()=>{ $('#modalRoot').innerHTML=''; };
+  $('#tSwitch').onclick=()=>{ signup=!signup; $('#tNew').style.display=signup?'block':'none'; $('#tTitle').textContent=signup?'👩‍🏫 교사 계정 만들기':'🔑 교사 로그인'; $('#tGo').textContent=signup?'계정 만들기':'로그인'; $('#tSwitch').textContent=signup?'이미 계정이 있어요':'처음이에요 (계정 만들기)'; warn(''); };
+  $('#tGo').onclick=async()=>{
+    const tid=$('#tId').value.trim().toLowerCase(), pw=$('#tPw').value;
+    if(!pw){ warn('비밀번호를 써 주세요.'); return; }
+    if(signup && !tid){ warn('아이디를 써 주세요.'); return; }
+    $('#tGo').disabled=true; warn('');
+    let ses=null;
+    try{
+      if(signup){
+        if(pw.length<4){ warn('비밀번호는 4자 이상으로 정해 주세요.'); $('#tGo').disabled=false; return; }
+        try{ ses=await api.signup(REMOTE?$('#tReg').value:'',tid,pw); }
+        catch(e){ const m=String(e.message||e); warn(m.includes('forbidden')?'교사 등록 코드가 달라요.':m.includes('exists')?'이미 있는 아이디예요. 다른 아이디를 써 주세요.':m.includes('bad id')?'아이디는 영어 소문자·숫자·-,_ 2~20자로 써 주세요.':'계정을 만들지 못했어요.'); $('#tGo').disabled=false; return; }
+      } else {
+        ses=await api.sessionLogin(tid,pw);
+        if(ses&&ses.error){ warn('연결이 안 돼요. 키와 주소를 확인해 주세요.'); $('#tGo').disabled=false; return; }
+        if(!ses){ warn('아이디나 비밀번호가 달라요.'); $('#tGo').disabled=false; return; }
+      }
+    }catch(e){ warn('연결이 안 돼요. 키와 주소를 확인해 주세요.'); $('#tGo').disabled=false; return; }
+    S.pin=ses.token; S.tid=ses.tid; S.adminPin=ses.role==='admin'?ses.token:null; S.teacher=true; S.code=''; S.num=0;
+    $('#modalRoot').innerHTML=''; S.screen='dash'; render();
+  };
+  $('#tPw').addEventListener('keydown',e=>{ if(e.key==='Enter') $('#tGo').click(); });
+}
+$('#teacherBtn').onclick=teacherModal;
+
+const stuLink=code=>location.origin+location.pathname+'?code='+encodeURIComponent(code);
+function showQR(code){
+  const url=stuLink(code); let svg=''; try{ svg=qrSVG(url,300); }catch(e){ svg='<div class="small">QR을 만들지 못했어요. 아래 주소를 알려 주세요.</div>'; }
+  $('#modalRoot').innerHTML=`<div class="mask" id="mask"><div class="modal" style="max-width:520px;text-align:center">
+    <div class="small">휴대폰이나 크롬북 카메라로 찍으면 바로 들어와요</div>
+    <div style="margin:8px auto;width:min(300px,52vh);height:min(300px,52vh)">${svg.replace(/width="\d+" height="\d+"/,'width="100%" height="100%"')}</div>
+    <div style="font-size:30px;font-weight:700;letter-spacing:2px;color:#233A52">${esc(code)}</div>
+    <div class="small" style="word-break:break-all;margin:4px 0 10px">${esc(url)}</div>
+    <div style="display:flex;gap:8px;justify-content:center"><button class="btn ghost" id="qCopy" style="padding:6px 16px">주소 복사</button><button class="btn" id="qClose" style="padding:6px 22px">닫기</button></div></div></div>`;
+  $('#qClose').onclick=closeModal; $('#mask').onclick=e=>{ if(e.target.id==='mask') closeModal(); };
+  $('#qCopy').onclick=async()=>{ try{ await navigator.clipboard.writeText(url); toast('복사했어요.'); }catch(e){ toast('길게 눌러 복사해 주세요.'); } };
+}
+async function viewDash(){
+  $('#app').innerHTML=`<div class="dash"><div class="wallhead"><h2>내 반 ${S.adminPin?'<span class="small">(관리자 : 전체 반)</span>':''}</h2><span style="flex:1"></span><button class="btn ghost" id="dMap" style="padding:6px 16px;font-size:15px">🗺 감사 지도</button></div>
+    <div class="panel" style="margin:10px 0"><b>＋ 새 반 만들기</b> <span class="small">(학교 영어 이름 + 학년 + 반, 예 : HAPPY51)</span>
+      <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><input id="dCode" maxlength="20" placeholder="HAPPY51" style="max-width:240px"><button class="btn" id="dMake" style="padding:6px 20px">만들기</button><span class="warn" id="dWarn" style="margin:0"></span></div></div>
+    <div id="dList"><div class="empty">불러오는 중…</div></div></div>`;
+  $('#dMap').onclick=()=>{ S.screen='map'; render(); };
+  const load=async()=>{
+    let rooms=[]; try{ rooms=await api.myRooms()||[]; }catch(e){ $('#dList').innerHTML='<div class="empty">불러오지 못했어요. 다시 로그인해 주세요.</div>'; return; }
+    $('#dList').innerHTML=rooms.length? `<div class="dgrid">${rooms.map(r=>`<div class="dcard"><div style="font-size:24px;font-weight:700;color:#233A52">${esc(r.class_code)}</div><div class="small">카드 ${r.n}장${S.adminPin&&r.owner?' · '+esc(r.owner):''}</div>
+      <div style="display:flex;gap:6px;margin-top:8px"><button class="btn" data-open="${esc(r.class_code)}" style="padding:5px 14px;font-size:15px">열기</button><button class="btn gold" data-qr="${esc(r.class_code)}" style="padding:5px 14px;font-size:15px">📱 QR</button></div></div>`).join('')}</div>` : '<div class="empty">아직 만든 반이 없어요. 위에서 반 코드를 만들어 보세요.</div>';
+    document.querySelectorAll('[data-open]').forEach(b=>b.onclick=()=>{ S.code=b.dataset.open; S.teacher=true; S.num=0; S.tf='all'; enter(); });
+    document.querySelectorAll('[data-qr]').forEach(b=>b.onclick=()=>showQR(b.dataset.qr));
+  };
+  $('#dMake').onclick=async()=>{
+    const code=$('#dCode').value.trim().toUpperCase().replace(/\s+/g,''); const w=$('#dWarn');
+    if(!/^[A-Z0-9]{3,20}$/.test(code)){ w.textContent='영어 대문자·숫자 3~20자로 써 주세요.'; return; }
+    try{ await api.createRoom(code); $('#dCode').value=''; w.textContent=''; await load(); showQR(code); }
+    catch(e){ const m=String(e.message||e); w.textContent=m.includes('exists')?'이미 있는 반 코드예요.':m.includes('forbidden')?'로그인이 끝났어요. 다시 로그인해 주세요.':'만들지 못했어요.'; }
+  };
+  load();
+}
+$('#outBtn').onclick=()=>{ api.logout(); S.code=''; S.num=null; S.teacher=false; S.pin=null; S.adminPin=null; S.tid=''; S.stoken=null; S.screen='entry'; S.read=new Set(); S.draft={to:'Mr. Taylor',thanks:'',youare:'',becauseof:'',withoutyou:'',will:'',bg:'hanji',sticker:'🕊️'}; render(); };
 
 if(!REMOTE){ $('#demoBar').style.display='block'; demoLoad(); }
 try{ speechSynthesis.getVoices(); }catch(e){}
