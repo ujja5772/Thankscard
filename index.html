@@ -447,14 +447,15 @@ function strip(s){ return noEmoji(s).trim().replace(/[.\s]+$/,'') }
 /* 보기에 없는 말(학생이 직접 쓴 표현) 찾기 : 칸마다 보기 목록과 비교해요 */
 const normW = t=>strip(t).toLowerCase().replace(/[★☆]/g,'').replace(/\s+/g,' ').trim();
 function customKeys(c){ return ORDER.filter(k=>{ const v=normW(c[k]); return v && !FIELDS[k].chips.some(ch=>normW(ch[0])===v); }); }
+const fin = t => t + (/[.!?]$/.test(t)?'':'.');
 function sentences(c){
   const to = c.to||c.to_who||'Mr. Taylor';
   const out = [`Dear ${to},`];
-  if(strip(c.thanks)) out.push(`Thank you for your ${strip(c.thanks)}.`);
-  if(strip(c.youare)) out.push(`You are ${strip(c.youare)}.`);
-  if(strip(c.becauseof)) out.push(`Because of you, we can ${strip(c.becauseof)}.`);
-  if(strip(c.withoutyou)) out.push(`Without you, we could not ${strip(c.withoutyou)}.`);
-  if(strip(c.will)) out.push(`I will ${strip(c.will)}.`);
+  if(strip(c.thanks)) out.push(fin(`Thank you for your ${strip(c.thanks)}`));
+  if(strip(c.youare)) out.push(fin(`You are ${strip(c.youare)}`));
+  if(strip(c.becauseof)) out.push(fin(`Because of you, we can ${strip(c.becauseof)}`));
+  if(strip(c.withoutyou)) out.push(fin(`Without you, we could not ${strip(c.withoutyou)}`));
+  if(strip(c.will)) out.push(fin(`I will ${strip(c.will)}`));
   return out;
 }
 
@@ -598,6 +599,7 @@ function myCards(){ return S.teacher? [] : S.cards.filter(c=>c.num===S.num).sort
 function myCard(to){ return S.cards.find(c=>c.num===S.num && (c.to_who||'Mr. Taylor')===to); }
 function blankDraft(to){ return {to:to||'Mr. Taylor',thanks:'',youare:'',becauseof:'',withoutyou:'',will:'',audio_public:false,bg:'hanji',sticker:'🕊️'}; }
 function loadDraft(m){ S.draft = {to:m.to_who||'Mr. Taylor', thanks:m.thanks||'', youare:m.youare||'', becauseof:m.becauseof||'', withoutyou:m.withoutyou||'', will:m.will||'', audio_public:!!m.audio_public, bg:m.bg||'hanji', sticker:m.sticker||'🕊️'}; }
+const wallSig=()=>JSON.stringify([S.cards.map(c=>[c.id,c.hidden,c.pinned,c.has_audio,c.audio_public,c.thanks,c.youare,c.becauseof,c.withoutyou,c.will,c.bg,c.sticker]), S.reacts.length, S.reacts.filter(r=>r.heart).length, S.room&&S.room.wall_open]);
 async function refresh(){
   try{ const [room,cards,reacts] = await Promise.all([api.getRoom(S.code), api.cards(S.code), api.reacts(S.code)]); S.room=room; S.cards=cards; S.reacts=reacts; }
   catch(e){ console.error(e); toast('연결이 불안정해요. 잠시 뒤 다시 해 봐요.'); }
@@ -699,6 +701,7 @@ function viewRec(){
 }
 
 function viewWall(){
+  const _w=document.querySelector('.wall'), _st=_w?_w.scrollTop:0, _py=window.scrollY;
   const open=true;
   const allVis=S.cards.filter(c=>S.teacher||!c.hidden);
   const tf=S.teacher?(S.tf||'all'):'all';
@@ -719,6 +722,7 @@ function viewWall(){
   else if(!visible.length) body=`<div class="empty">${tf==='all'?'아직 카드가 없어요.':'이 분께 쓴 카드가 아직 없어요.'}</div>`;
   else body=`<div class="wall">${visible.map(c=>miniHTML(c,S.teacher?teacherBar(c):'')).join('')}</div>`;
   $('#app').innerHTML=stepsHTML(3)+head+body;
+  { const w=document.querySelector('.wall'); if(w) w.scrollTop=_st; window.scrollTo(0,_py); }
   document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{ const m=S.cards.find(c=>c.id===b.dataset.edit); if(m){ loadDraft(m); S.screen='write'; render(); } });
   if($('#more')) $('#more').onclick=()=>{
     $('#modalRoot').innerHTML=`<div class="mask" id="mask"><div class="modal" style="max-width:620px"><h3>✉ 또 누구에게 쓸까요? <span class="small">(심화)</span></h3>
@@ -909,7 +913,7 @@ function render(){
   if(S.timer){ clearInterval(S.timer); S.timer=null; }
   ({entry:viewEntry, write:viewWrite, deco:viewDeco, rec:viewRec, wall:viewWall, map:viewMap, dash:viewDash}[S.screen])();
   if(S.screen==='map') S.timer=setInterval(loadMap, 15000);
-  if(S.screen==='wall') S.timer=setInterval(async()=>{ if($('#modalRoot').innerHTML) return; await refresh(); viewWall(); }, 8000);
+  if(S.screen==='wall') S.timer=setInterval(async()=>{ if($('#modalRoot').innerHTML) return; const sig=wallSig(); await refresh(); if(wallSig()!==sig) viewWall(); }, 8000);
 }
 function teacherModal(){
   $('#modalRoot').innerHTML=`<div class="mask" id="mask"><div class="modal" style="max-width:460px">
