@@ -92,6 +92,7 @@ main{padding:18px 24px 30px;max-width:1280px;margin:0 auto}
 .mini{border:1px solid #D8CFB5;border-radius:6px;padding:14px 16px;font-family:Georgia,serif;font-size:15px;line-height:1.55;cursor:pointer;position:relative;min-height:190px;box-shadow:0 2px 6px rgba(0,0,0,.1);transition:transform .1s}
 .mini:hover{transform:translateY(-3px) rotate(-.4deg)}
 .mini .stk{position:absolute;right:-6px;top:-14px;font-size:28px}
+.mini mark.own{background:#FFE48A;border-radius:3px;padding:0 2px}
 .mini .meta{position:static;margin-top:12px;display:flex;justify-content:space-between;font-family:"Noto Sans KR",sans-serif;font-size:13px;color:var(--soft)}
 .mini.read{outline:3px solid #CFE3D6}
 .mini.mine{outline:3px solid var(--gold)}
@@ -148,7 +149,7 @@ footer{flex:none;padding:2px 0 4px;font-size:11px}
 .opt{background:#FFF9E8;border:1px solid #E3D3A3;border-radius:10px;padding:8px 10px;margin-top:8px}
 .opt .en{font-family:Georgia,serif;font-size:1.1em;color:var(--navy)}
 .opt .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px}
-.wchip{background:#fff;border:1px solid var(--line);border-radius:999px;padding:2px 10px;font-size:14px;cursor:grab}
+.wchip{font-family:Roboto,Arial,"Noto Sans KR",sans-serif;background:#fff;border:1px solid var(--line);border-radius:999px;padding:2px 10px;font-size:15px;cursor:grab}
 .wchip small{color:var(--soft);font-size:11px;margin-left:3px}
 .wchip:hover{background:#F3EBD2}
 .mini2{padding:3px 12px;font-size:14px}
@@ -288,8 +289,8 @@ function qrSVG(text, px){
 }
 
 /* ===== 설정 ===== */
-const SUPABASE_URL = 'https://kpjbzvcvbhuakevhyruz.supabase.co';          // 예: https://xxxx.supabase.co
-const SUPABASE_KEY = 'sb_publishable_Q7JPoZ0VkRx4-2t1pj8Hpg_ibbRnrpM';          // anon(public) key
+const SUPABASE_URL = '';          // 예: https://xxxx.supabase.co
+const SUPABASE_KEY = '';          // anon(public) key
 /* 교사·관리자 비밀번호는 Supabase(setup.sql)에서 정해요. 아래 줄은 키를 비워 둔 연습(DEMO) 모드에서만 쓰여요 */
 const DEMO_TEACHER = '0000', DEMO_ADMIN = '9999';
 const REC_MAX_SEC = 60;           // 녹음 최대 시간
@@ -440,7 +441,12 @@ const S = {screen:'entry', code:'', num:null, teacher:false, pin:null, adminPin:
   gloss:{}, rec:{blob:null, b64:null, mime:'', url:null, state:'idle'}};
 const $ = s=>document.querySelector(s);
 function words(s){ return (s||'').trim().split(/\s+/).filter(Boolean).length }
-function strip(s){ return (s||'').trim().replace(/[.\s]+$/,'') }
+const EMOJI_RE = /[\p{Extended_Pictographic}\p{Regional_Indicator}\uFE0F\u200D\u20E3]/gu;
+function noEmoji(s){ return String(s||'').replace(EMOJI_RE,'') }
+function strip(s){ return noEmoji(s).trim().replace(/[.\s]+$/,'') }
+/* 보기에 없는 말(학생이 직접 쓴 표현) 찾기 : 칸마다 보기 목록과 비교해요 */
+const normW = t=>strip(t).toLowerCase().replace(/[★☆]/g,'').replace(/\s+/g,' ').trim();
+function customKeys(c){ return ORDER.filter(k=>{ const v=normW(c[k]); return v && !FIELDS[k].chips.some(ch=>normW(ch[0])===v); }); }
 function sentences(c){
   const to = c.to||c.to_who||'Mr. Taylor';
   const out = [`Dear ${to},`];
@@ -456,6 +462,7 @@ function sentences(c){
 function speak(text, rate=.85){
   try{
     speechSynthesis.cancel();
+    text = noEmoji(text).replace(/\s+/g,' ').trim(); if(!text) return;
     const u = new SpeechSynthesisUtterance(text); u.lang='en-US'; u.rate=rate;
     const v = speechSynthesis.getVoices().find(v=>/en[-_]US/i.test(v.lang)); if(v) u.voice=v;
     speechSynthesis.speak(u);
@@ -487,7 +494,7 @@ async function glossOf(w, sentence){
   const key=w.toLowerCase();
   if(GLOSS[key]) return GLOSS[key];
   if(S.gloss[key]) return S.gloss[key];
-  return '뜻을 찾지 못했어요. 사전에서 보기를 눌러 봐요.';
+  return '뜻을 찾지 못했어요. 번역기에서 보기를 눌러 봐요.';
 }
 function tokenize(sentence){
   return esc(sentence).replace(/[A-Za-z][A-Za-z']*/g, m=>`<span class="tok" data-tok="${m}">${m}</span>`);
@@ -497,7 +504,7 @@ function bindTokens(root, sentenceOf){
     const w=t.dataset.tok; const box=$('#gloss'); if(!box) return;
     box.innerHTML=`<b>${esc(w)}</b> <span>…</span>`; speak(w, .8);
     const ko = await glossOf(w, sentenceOf?sentenceOf(t):'');
-    box.innerHTML=`<b>${esc(w)}</b> <span>${esc(ko)}</span> <button id="gSay">🔊</button> <a href="https://en.dict.naver.com/#/search?query=${enc(w)}" target="_blank" rel="noopener" style="color:#B8C7DA;font-size:13px">사전에서 보기</a>`;
+    box.innerHTML=`<b>${esc(w)}</b> <span>${esc(ko)}</span> <button id="gSay">🔊</button> <a href="https://papago.naver.com/?sk=en&tk=ko&st=${enc(w)}" target="_blank" rel="noopener" style="color:#B8C7DA;font-size:13px">번역기에서 보기</a>`;
     $('#gSay').onclick=()=>speak(w,.8);
   });
 }
@@ -505,7 +512,7 @@ function bindTokens(root, sentenceOf){
 /* ===== 쓰기 도움 ===== */
 function checkLine(k, t){
   t=(t||'').trim(); if(!t) return '';
-  if(/[가-힣]/.test(t)) return '영어로 써 주세요. 모르면 오른쪽 보기를 누르거나 📖 사전에서 찾아 봐요.';
+  if(/[가-힣]/.test(t)) return '영어로 써 주세요. 모르면 오른쪽 보기를 누르거나 🌐 번역기에서 찾아 봐요.';
   if(/(^|\s)i(\s|$|')/.test(t)) return '"I"(나)는 항상 대문자예요.';
   if(k==='thanks' && /^your\b/i.test(t)) return '"your"는 이미 앞에 있어요. help처럼 낱말만 써요.';
   if(k==='thanks' && /^[a-z]+ing\b/i.test(t) && words(t)<=3) return 'Thank you for your 다음에는 help, kindness처럼 이름 낱말이 잘 어울려요.';
@@ -530,11 +537,12 @@ function cardHTML(c, label, clickable){
   return `<div class="card bg-${esc(c.bg||'hanji')}"><span class="stk">${esc(c.sticker||'')}</span>${body}<div class="from">From, ${esc(label)}</div></div>`;
 }
 function miniHTML(c, extra=''){
-  const ss = sentences(c).slice(1).map(esc).join('<br>');
+  const ck = S.teacher? customKeys(c) : [];
+  const ss = sentences(c).slice(1).map((line,i)=>{ const k=ORDER.filter(k=>strip(c[k]))[i]; return ck.includes(k)? `<mark class="own">${esc(line)}</mark>`: esc(line); }).join('<br>');
   const hearts = S.reacts.filter(r=>r.card_id===c.id && r.heart).length;
   const cls = ['mini','bg-'+c.bg, S.read.has(c.id)?'read':'', c.num===S.num&&S.code===c.class_code?'mine':'', c.hidden?'hid':'', c.pinned?'pin':''].join(' ');
   return `<div class="${cls}" data-id="${c.id}"><span class="stk">${esc(c.sticker||'')}</span><b style="font-size:13px">Dear ${esc(c.to_who||'Mr. Taylor')},</b><br>${ss}
-    <div class="meta"><span>No. ${c.num}${c.has_audio&&(c.audio_public||S.teacher||c.num===S.num)?' 🔊':''}</span><span>♥ ${hearts}</span></div>${extra}</div>`;
+    <div class="meta"><span>No. ${c.num}${ck.length?' ✍':''}${c.has_audio&&(c.audio_public||S.teacher||c.num===S.num)?' 🔊':''}</span><span>♥ ${hearts}</span></div>${extra}</div>`;
 }
 function toast(msg){
   const t=document.createElement('div');
@@ -610,14 +618,14 @@ function viewWrite(){
       <div class="warn" id="wWarn" style="margin-top:8px"></div>
     </div></div>
     <div class="actions"><div class="actions2" style="margin:0"><button class="btn ghost" id="sayAll" style="padding:6px 16px;font-size:15px">🔊 내 카드 듣기</button>
-      <a class="btn ghost" href="https://en.dict.naver.com/" target="_blank" rel="noopener" style="padding:6px 16px;font-size:15px;text-decoration:none">📖 사전</a></div>
+      <a class="btn ghost" href="https://papago.naver.com/?sk=ko&tk=en" target="_blank" rel="noopener" style="padding:6px 16px;font-size:15px;text-decoration:none">🌐 번역기</a></div>
       <span style="flex:1"></span><button class="btn" id="next">다음 : 꾸미기 →</button></div>`;
   const info=()=>{ const r=RECIPIENTS.find(x=>x[0]===S.draft.to); $('#toInfo').textContent=r?r[1]:''; };
   info(); $('#toSel').onchange=e=>{ S.draft.to=e.target.value; info(); };
   drawWordPanel(); drawChecks();
   document.querySelectorAll('.card input').forEach(inp=>{
     inp.onfocus=()=>{ S.focus=inp.dataset.k; drawWordPanel(); };
-    inp.oninput=()=>{ S.draft[inp.dataset.k]=inp.value; drawChecks(); };
+    inp.oninput=()=>{ if(EMOJI_RE.test(inp.value)){ EMOJI_RE.lastIndex=0; inp.value=noEmoji(inp.value); toast('그림 문자(이모지)는 쓸 수 없어요. 영어로 써요.'); } EMOJI_RE.lastIndex=0; S.draft[inp.dataset.k]=inp.value; drawChecks(); };
     inp.ondragover=e=>{ e.preventDefault(); inp.classList.add('drop'); };
     inp.ondragleave=()=>inp.classList.remove('drop');
     inp.ondrop=e=>{ e.preventDefault(); inp.classList.remove('drop'); const w=e.dataTransfer.getData('text/plain'); if(w) setField(inp.dataset.k, w, true); };
@@ -634,7 +642,7 @@ function viewWrite(){
 function shuf(a,seed){ a=a.slice(); let x=(seed||1)*9301+49297; for(let i=a.length-1;i>0;i--){ x=(x*9301+49297)%233280; const j=Math.floor(x/233280*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; }
 function drawWordPanel(){
   const f=FIELDS[S.focus]; const el=$('#wordPanel'); if(!el) return;
-  el.innerHTML = `<h3>${esc(f.title)}</h3><div class="small" style="margin-bottom:6px">${esc(f.hint)}</div><div class="small" style="margin-bottom:8px">다른 말을 쓰고 싶으면 아래 <b>📖 사전</b>에서 찾아 칸에 써요.</div>
+  el.innerHTML = `<h3>${esc(f.title)}</h3><div class="small" style="margin-bottom:6px">${esc(f.hint)}</div><div class="small" style="margin-bottom:8px">다른 말을 쓰고 싶으면 아래 <b>🌐 번역기</b>에서 찾아 칸에 써요.</div>
     <div class="chips">${f.chips.map(c=>`<span class="wchip" draggable="true" data-w="${esc(c[0])}" data-drag="${esc(c[0])}">${S.focus==='thanks'&&(REC[S.draft.to]||[]).includes(c[0])?'★ ':''}${esc(c[0])}<small>${esc(c[1])}</small></span>`).join('')}</div>`;
   bindChips('#wordPanel');
 }
@@ -694,7 +702,9 @@ function viewWall(){
   const open=true;
   const allVis=S.cards.filter(c=>S.teacher||!c.hidden);
   const tf=S.teacher?(S.tf||'all'):'all';
-  const visible=tf==='all'?allVis:allVis.filter(c=>(c.to_who||c.to)===tf);
+  const ownN = S.teacher? allVis.filter(c=>customKeys(c).length).length : 0;
+  const ownOn = S.teacher && S.own;
+  const visible=(tf==='all'?allVis:allVis.filter(c=>(c.to_who||c.to)===tf)).filter(c=>!ownOn||customKeys(c).length);
   const mineAll=myCards(); const left=RECIPIENTS.filter(r=>!myCard(r[0]));
   let head=`<div class="wallhead"><h2>Thank You Wall</h2>`;
   if(!S.teacher) head+=mineAll.map(m=>`<button class="btn ghost" data-edit="${m.id}" style="padding:6px 16px;font-size:15px">✏ ${mineAll.length>1?esc(m.to_who||'Mr. Taylor')+' 카드':'내 카드'} 고치기</button>`).join('');
@@ -703,7 +713,7 @@ function viewWall(){
   if(S.teacher) head+=`<button class="btn ghost" id="wQR" style="padding:6px 16px;font-size:15px">📱 QR</button><button class="btn ghost" id="wPin" style="padding:6px 16px;font-size:15px">🔄 핀 초기화</button><button class="btn ghost" id="wBack" style="padding:6px 16px;font-size:15px">← 내 반 목록</button>`;
   if(S.teacher) head+=`<button class="btn gold" id="spot" style="padding:6px 16px;font-size:15px">📌 대표 카드 크게 보기</button>`;
   head+=`</div>`;
-  if(S.teacher){ const names=RECIPIENTS.map(r=>r.name||r[0]||r); head+=`<div class="tabs" style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 10px">`+[['all','전체']].concat(names.map(n=>[n,n])).map(([k,l])=>{ const n=k==='all'?allVis.length:allVis.filter(c=>(c.to_who||c.to)===k).length; return `<button class="btn ${tf===k?'':'ghost'}" data-tf="${esc(k)}" style="padding:5px 14px;font-size:15px">${esc(l)} <b>${n}</b></button>`; }).join('')+`</div>`; }
+  if(S.teacher){ const names=RECIPIENTS.map(r=>r.name||r[0]||r); head+=`<div class="tabs" style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 10px">`+[['all','전체']].concat(names.map(n=>[n,n])).map(([k,l])=>{ const n=k==='all'?allVis.length:allVis.filter(c=>(c.to_who||c.to)===k).length; return `<button class="btn ${tf===k?'':'ghost'}" data-tf="${esc(k)}" style="padding:5px 14px;font-size:15px">${esc(l)} <b>${n}</b></button>`; }).join('')+`<button class="btn ${ownOn?'gold':'ghost'}" id="ownF" style="padding:5px 14px;font-size:15px">✍ 직접 쓴 말 <b>${ownN}</b></button></div>`; }
   let body;
   if(!open) body=`<div class="empty">🔒 선생님이 벽을 열어 줄 때까지 기다려요.<br><span class="small">지금까지 올라온 카드 : ${S.cards.length}장</span></div>`;
   else if(!visible.length) body=`<div class="empty">${tf==='all'?'아직 카드가 없어요.':'이 분께 쓴 카드가 아직 없어요.'}</div>`;
@@ -727,6 +737,7 @@ function viewWall(){
   };
   if($('#wBack')) $('#wBack').onclick=()=>{ S.code=''; S.screen='dash'; render(); };
   document.querySelectorAll('[data-tf]').forEach(b=>b.onclick=()=>{ S.tf=b.dataset.tf; viewWall(); });
+  if($('#ownF')) $('#ownF').onclick=()=>{ S.own=!S.own; viewWall(); };
   document.querySelectorAll('.mini').forEach(m=>m.onclick=e=>{ if(e.target.closest('.tbar')) return; openCard(m.dataset.id); });
   document.querySelectorAll('.tbar button').forEach(b=>b.onclick=async e=>{
     e.stopPropagation(); const id=b.closest('.mini').dataset.id, c=S.cards.find(x=>x.id===id);
